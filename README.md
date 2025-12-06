@@ -14,6 +14,18 @@ The system allows healthcare providers to submit medical claims through a Vue.js
 -   **Email Notifications**: Insurers receive notifications about new batches.
 -   **Queue Support**: Email sending is queued for better performance.
 -   **Error Handling**: Comprehensive try-catch blocks prevent application crashes.
+-   **Form Validation and Feedback**: Retains form data on validation errors, clears on success, shows appropriate toasts.
+
+## Recent Changes
+
+### Fixes Applied to Claim Submission
+
+The following changes were made to resolve issues with form submission, toasts, and data retention:
+
+-   **Route Migration**: Moved `POST /api/claims` from `routes/api.php` to `routes/web.php` to ensure Inertia.js receives proper redirect responses instead of plain JSON, preventing "plain JSON response" errors.
+-   **Controller Updates**: Modified `ClaimController::store()` to return `redirect()->back()->with('success', ...)` on success and `redirect()->back()->with('error', ...)` on server errors. Validation errors are handled automatically by Laravel via redirects.
+-   **Vue Component Adjustments**: Updated `SubmitClaim.vue` to handle flash messages in `onMounted` for success and error toasts. Removed redundant toast calls in form callbacks. Form reset occurs only on successful submission via `onSuccess`.
+-   **Code Cleanup**: Removed unused imports (`Inertia`, `ClaimItem`), added return types, and ensured proper error handling for web routes.
 
 ## Architecture
 
@@ -129,34 +141,28 @@ Without the queue worker, emails won't be sent, but claims will still be process
 
 ### POST /api/claims
 
-Submits a new claim.
+Submits a new claim. This is a web route that returns redirects with flash messages for proper Inertia.js handling.
 
-**Request Body:**
+**Request Body (form data):**
 
-```json
-{
-    "insurer_code": "INS-A",
-    "provider_name": "Provider A",
-    "encounter_date": "2023-10-01",
-    "specialty": "cardiology",
-    "priority": 3,
-    "items": [
-        {
-            "name": "Consultation",
-            "unit_price": 100.0,
-            "quantity": 1
-        }
-    ]
-}
+```
+insurer_code: INS-A
+provider_name: Provider A
+encounter_date: 2023-10-01
+specialty: cardiology
+priority: 3
+items[0][name]: Consultation
+items[0][unit_price]: 100.0
+items[0][quantity]: 1
 ```
 
-**Response (201):**
+**Response (redirect):**
 
-```json
-{
-    "message": "Claim submitted successfully"
-}
-```
+On success: Redirects back with `success` flash message: "Claim submitted successfully!"
+
+On validation error: Redirects back with validation errors populated.
+
+On server error: Redirects back with `error` flash message.
 
 ## Batching Algorithm
 
