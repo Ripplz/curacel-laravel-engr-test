@@ -9,19 +9,15 @@ use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class BatchNotification extends Mailable
+class BatchNotification extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
-    public $batch;
 
     /**
      * Create a new message instance.
      */
-    public function __construct($batch)
-    {
-        $this->batch = $batch;
-    }
+    public function __construct(public $batch) {}
 
     /**
      * Get the message envelope.

@@ -187,11 +187,12 @@
 </template>
 
 <script setup>
-import { Head, useForm } from "@inertiajs/vue3";
+import { Head } from "@inertiajs/vue3";
 import GuestLayout from "@/Layouts/GuestLayout.vue";
-import { ref, computed, watch } from "vue";
+import { ref, computed } from "vue";
+import axios from "axios";
 
-const form = useForm({
+const form = ref({
     insurer_code: "",
     provider_name: "",
     encounter_date: "",
@@ -203,40 +204,50 @@ const form = useForm({
 const loading = ref(false);
 
 const totalValue = computed(() => {
-    return form.items
+    return form.value.items
         .reduce((total, item) => total + item.subtotal, 0)
         .toFixed(2);
 });
 
 const addItem = () => {
-    form.items.push({ name: "", unit_price: 0, quantity: 1, subtotal: 0 });
+    form.value.items.push({
+        name: "",
+        unit_price: 0,
+        quantity: 1,
+        subtotal: 0,
+    });
 };
 
 const removeItem = (index) => {
-    form.items.splice(index, 1);
+    form.value.items.splice(index, 1);
 };
 
 const calculateSubtotal = (index) => {
-    const item = form.items[index];
+    const item = form.value.items[index];
     item.subtotal = item.unit_price * item.quantity;
 };
 
-const submitClaim = () => {
+const submitClaim = async () => {
     loading.value = true;
-    form.post("/api/claims", {
-        onSuccess: () => {
-            alert("Claim submitted successfully!");
-            form.reset();
-            form.items = [
-                { name: "", unit_price: 0, quantity: 1, subtotal: 0 },
-            ];
-        },
-        onError: () => {
-            alert("Error submitting claim.");
-        },
-        onFinish: () => {
-            loading.value = false;
-        },
-    });
+    try {
+        const response = await axios.post("/api/claims", form.value);
+        alert("Claim submitted successfully!");
+        // Reset form
+        form.value = {
+            insurer_code: "",
+            provider_name: "",
+            encounter_date: "",
+            specialty: "",
+            priority: 1,
+            items: [{ name: "", unit_price: 0, quantity: 1, subtotal: 0 }],
+        };
+    } catch (error) {
+        alert(
+            "Error submitting claim: " +
+                (error.response?.data?.message || error.message)
+        );
+    } finally {
+        loading.value = false;
+    }
 };
 </script>

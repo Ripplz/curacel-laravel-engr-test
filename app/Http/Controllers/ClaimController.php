@@ -8,6 +8,7 @@ use App\Models\ClaimItem;
 use App\Models\Insurer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class ClaimController extends Controller
@@ -48,30 +49,38 @@ class ClaimController extends Controller
             ];
         }
 
-        // Use database transaction to ensure data integrity
-        DB::transaction(function () use ($request, $insurer, $totalValue, $itemsData) {
-            // Create the claim record
-            $claim = Claim::create([
-                'insurer_id' => $insurer->id,
-                'provider_name' => $request->provider_name,
-                'encounter_date' => $request->encounter_date,
-                'submission_date' => now(),
-                'specialty' => $request->specialty,
-                'priority' => $request->priority,
-                'total_value' => $totalValue,
-            ]);
+        try {
+            // Use database transaction to ensure data integrity
+            DB::transaction(function () use ($request, $insurer, $totalValue, $itemsData) {
+                // Create the claim record
+                $claim = Claim::create([
+                    'insurer_id' => $insurer->id,
+                    'provider_name' => $request->provider_name,
+                    'encounter_date' => $request->encounter_date,
+                    'submission_date' => now(),
+                    'specialty' => $request->specialty,
+                    'priority' => $request->priority,
+                    'total_value' => $totalValue,
+                ]);
 
-            // Create claim items
-            foreach ($itemsData as $itemData) {
-                $claim->items()->create($itemData);
-            }
+                // Create claim items
+                foreach ($itemsData as $itemData) {
+                    $claim->items()->create($itemData);
+                }
 
-            // Batch the claim for optimal processing
-            $this->batchClaim($claim, $insurer);
-        });
+                // Batch the claim for optimal processing
+                $this->batchClaim($claim, $insurer);
+            });
 
-        // Return success response
-        return response()->json(['message' => 'Claim submitted successfully'], 201);
+            // Return success response
+            return response()->json(['message' => 'Claim submitted successfully'], 201);
+        } catch (\Exception $e) {
+            // Log the error for debugging
+            Log::error('Claim submission failed: ' . $e->getMessage());
+
+            // Return error response
+            return response()->json(['message' => 'An error occurred while submitting the claim. Please try again.'], 500);
+        }
     }
 
     /**
