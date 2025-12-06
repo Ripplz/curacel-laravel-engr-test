@@ -255,3 +255,4 @@ Tests cover claim submission and validation.
 -   Error handling with try-catch and logging.
 -   Queued emails for performance.
 -   Comprehensive validation on API inputs.
+-   Form automatically clears after successful claim submission for clean UX.

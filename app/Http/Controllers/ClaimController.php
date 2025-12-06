@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Batch;
 use App\Models\Claim;
-use App\Models\ClaimItem;
 use App\Models\Insurer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,69 +16,95 @@ class ClaimController extends Controller
      * Store a new claim submission.
      * Validates input, creates claim and items, batches the claim, and sends notification.
      */
-    public function store(Request $request)
+    public function store(Request $request): \Illuminate\Http\RedirectResponse
     {
         // Validate the incoming request data
         $request->validate([
-            'insurer_code' => 'required|string|exists:insurers,code', // Must be a valid insurer code
-            'provider_name' => 'required|string', // Name of the healthcare provider
-            'encounter_date' => 'required|date', // Date of the medical encounter
-            'specialty' => 'required|string', // Medical specialty (e.g., cardiology)
-            'priority' => 'required|integer|min:1|max:5', // Priority level (1-5)
-            'items' => 'required|array|min:1', // Array of claim items
-            'items.*.name' => 'required|string', // Name of each item
-            'items.*.unit_price' => 'required|numeric|min:0', // Price per unit
-            'items.*.quantity' => 'required|integer|min:1', // Quantity of units
+            "insurer_code" => "required|string|exists:insurers,code", // Must be a valid insurer code
+            "provider_name" => "required|string", // Name of the healthcare provider
+            "encounter_date" => "required|date", // Date of the medical encounter
+            "specialty" => "required|string", // Medical specialty (e.g., cardiology)
+            "priority" => "required|integer|min:1|max:5", // Priority level (1-5)
+            "items" => "required|array|min:1", // Array of claim items
+            "items.*.name" => "required|string", // Name of each item
+            "items.*.unit_price" => "required|numeric|min:0", // Price per unit
+            "items.*.quantity" => "required|integer|min:1", // Quantity of units
         ]);
 
         // Find the insurer by code
-        $insurer = Insurer::where('code', $request->insurer_code)->first();
+        $insurer = Insurer::where("code", $request->insurer_code)->first();
 
         // Calculate total value and prepare item data
         $totalValue = 0;
         $itemsData = [];
         foreach ($request->items as $item) {
-            $subtotal = $item['unit_price'] * $item['quantity'];
+            $subtotal = $item["unit_price"] * $item["quantity"];
             $totalValue += $subtotal;
             $itemsData[] = [
-                'name' => $item['name'],
-                'unit_price' => $item['unit_price'],
-                'quantity' => $item['quantity'],
-                'subtotal' => $subtotal,
+                "name" => $item["name"],
+                "unit_price" => $item["unit_price"],
+                "quantity" => $item["quantity"],
+                "subtotal" => $subtotal,
             ];
         }
 
+        Log::info("Starting transaction");
+
         try {
             // Use database transaction to ensure data integrity
-            DB::transaction(function () use ($request, $insurer, $totalValue, $itemsData) {
+            DB::transaction(function () use (
+                $request,
+                $insurer,
+                $totalValue,
+                $itemsData,
+            ) {
+                Log::info("Inside transaction");
+
                 // Create the claim record
                 $claim = Claim::create([
-                    'insurer_id' => $insurer->id,
-                    'provider_name' => $request->provider_name,
-                    'encounter_date' => $request->encounter_date,
-                    'submission_date' => now(),
-                    'specialty' => $request->specialty,
-                    'priority' => $request->priority,
-                    'total_value' => $totalValue,
+                    "insurer_id" => $insurer->id,
+                    "provider_name" => $request->provider_name,
+                    "encounter_date" => $request->encounter_date,
+                    "submission_date" => now(),
+                    "specialty" => $request->specialty,
+                    "priority" => $request->priority,
+                    "total_value" => $totalValue,
                 ]);
+
+                Log::info("Claim created", ["claim_id" => $claim->id]);
 
                 // Create claim items
                 foreach ($itemsData as $itemData) {
                     $claim->items()->create($itemData);
                 }
 
+                Log::info("Items created");
+
                 // Batch the claim for optimal processing
                 $this->batchClaim($claim, $insurer);
+
+                Log::info("Batching done");
             });
 
-            // Return success response
-            return response()->json(['message' => 'Claim submitted successfully'], 201);
+            Log::info("Transaction committed");
+
+            // Return success response with flash message
+            return redirect()
+                ->back()
+                ->with("success", "Claim submitted successfully!");
         } catch (\Exception $e) {
             // Log the error for debugging
-            Log::error('Claim submission failed: ' . $e->getMessage());
+            Log::error("Claim submission failed: " . $e->getMessage(), [
+                "trace" => $e->getTraceAsString(),
+            ]);
 
             // Return error response
-            return response()->json(['message' => 'An error occurred while submitting the claim. Please try again.'], 500);
+            return redirect()
+                ->back()
+                ->with(
+                    "error",
+                    "An error occurred while submitting the claim. Please try again.",
+                );
         }
     }
 
@@ -101,36 +126,51 @@ class ClaimController extends Controller
      * Batch the claim for optimal processing.
      * Finds or creates a batch and assigns the claim to it.
      */
-    private function batchClaim(Claim $claim, Insurer $insurer)
+    private function batchClaim(Claim $claim, Insurer $insurer): void
     {
         // Determine batch date based on insurer's preference
-        $batchDate = $insurer->date_preference === 'encounter' ? $claim->encounter_date : $claim->submission_date;
+        $batchDate =
+            $insurer->date_preference === "encounter"
+                ? $claim->encounter_date
+                : $claim->submission_date;
 
         // Find existing batch for this provider, date, and insurer
-        $batch = Batch::where('provider_name', $claim->provider_name)
-            ->where('date', $batchDate)
-            ->where('insurer_id', $insurer->id)
+        $batch = Batch::where("provider_name", $claim->provider_name)
+            ->where("date", $batchDate)
+            ->where("insurer_id", $insurer->id)
             ->first();
 
         if (!$batch) {
             // Create new batch if none exists
             $batch = Batch::create([
-                'provider_name' => $claim->provider_name,
-                'date' => $batchDate,
-                'insurer_id' => $insurer->id,
-                'total_cost' => $this->calculateClaimCost($claim, $insurer, $batchDate),
+                "provider_name" => $claim->provider_name,
+                "date" => $batchDate,
+                "insurer_id" => $insurer->id,
+                "total_cost" => $this->calculateClaimCost(
+                    $claim,
+                    $insurer,
+                    $batchDate,
+                ),
             ]);
         } elseif ($batch->claims()->count() < $insurer->max_batch_size) {
             // Add to existing batch if not full
-            $batch->total_cost += $this->calculateClaimCost($claim, $insurer, $batchDate);
+            $batch->total_cost += $this->calculateClaimCost(
+                $claim,
+                $insurer,
+                $batchDate,
+            );
             $batch->save();
         } else {
             // Create new batch if existing is full
             $batch = Batch::create([
-                'provider_name' => $claim->provider_name,
-                'date' => $batchDate,
-                'insurer_id' => $insurer->id,
-                'total_cost' => $this->calculateClaimCost($claim, $insurer, $batchDate),
+                "provider_name" => $claim->provider_name,
+                "date" => $batchDate,
+                "insurer_id" => $insurer->id,
+                "total_cost" => $this->calculateClaimCost(
+                    $claim,
+                    $insurer,
+                    $batchDate,
+                ),
             ]);
         }
 
@@ -139,26 +179,41 @@ class ClaimController extends Controller
         $claim->save();
 
         // Send notification email to insurer
-        Mail::to($insurer->email)->send(new \App\Mail\BatchNotification($batch));
+        Mail::to($insurer->email)->send(
+            new \App\Mail\BatchNotification($batch),
+        );
     }
 
     /**
      * Calculate the processing cost for a claim within a batch.
      * Considers time of month, specialty efficiency, priority, and value.
+     * @param \Carbon\Carbon $batchDate
      */
-    private function calculateClaimCost(Claim $claim, Insurer $insurer, $batchDate)
-    {
+    private function calculateClaimCost(
+        Claim $claim,
+        Insurer $insurer,
+        $batchDate,
+    ): int {
         // Calculate day of month (1-31)
-        $day = (int) $batchDate->format('j');
+        $day = (int) $batchDate->format("j");
 
         // Linear interpolation for time-based cost (20% to 50% over the month)
-        $timeCost = $insurer->time_cost_min + ($insurer->time_cost_max - $insurer->time_cost_min) * ($day - 1) / 29;
+        $timeCost =
+            $insurer->time_cost_min +
+            (($insurer->time_cost_max - $insurer->time_cost_min) * ($day - 1)) /
+                29;
 
         // Get specialty efficiency multiplier
-        $specialtyEff = $insurer->specialty_efficiency[$claim->specialty] ?? 1.0;
+        $specialtyEff =
+            $insurer->specialty_efficiency[$claim->specialty] ?? 1.0;
 
         // Calculate total cost: base * (1 + time) * specialty * priority^exponent + value * multiplier
-        $cost = $insurer->base_cost * (1 + $timeCost) * $specialtyEff * $insurer->priority_cost_multiplier ** ($claim->priority - 1) + $claim->total_value * $insurer->value_cost_multiplier;
+        $cost =
+            $insurer->base_cost *
+                (1 + $timeCost) *
+                $specialtyEff *
+                $insurer->priority_cost_multiplier ** ($claim->priority - 1) +
+            $claim->total_value * $insurer->value_cost_multiplier;
 
         return $cost;
     }

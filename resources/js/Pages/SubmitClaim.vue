@@ -5,6 +5,19 @@
         <div class="card-header">Submit A Claim</div>
 
         <div class="card-body">
+            <!-- Toast Notification -->
+            <div
+                v-if="toast.show"
+                class="fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg"
+                :class="
+                    toast.type === 'success'
+                        ? 'bg-green-500 text-white'
+                        : 'bg-red-500 text-white'
+                "
+            >
+                {{ toast.message }}
+            </div>
+
             <form @submit.prevent="submitClaim">
                 <div class="mb-4">
                     <label
@@ -17,7 +30,14 @@
                         type="text"
                         id="insurer_code"
                         class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                        :class="{ 'border-red-500': form.errors.insurer_code }"
                     />
+                    <div
+                        v-if="form.errors.insurer_code"
+                        class="text-red-500 text-sm mt-1"
+                    >
+                        {{ form.errors.insurer_code }}
+                    </div>
                 </div>
 
                 <div class="mb-4">
@@ -31,7 +51,14 @@
                         type="text"
                         id="provider_name"
                         class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                        :class="{ 'border-red-500': form.errors.provider_name }"
                     />
+                    <div
+                        v-if="form.errors.provider_name"
+                        class="text-red-500 text-sm mt-1"
+                    >
+                        {{ form.errors.provider_name }}
+                    </div>
                 </div>
 
                 <div class="mb-4">
@@ -45,7 +72,16 @@
                         type="date"
                         id="encounter_date"
                         class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                        :class="{
+                            'border-red-500': form.errors.encounter_date,
+                        }"
                     />
+                    <div
+                        v-if="form.errors.encounter_date"
+                        class="text-red-500 text-sm mt-1"
+                    >
+                        {{ form.errors.encounter_date }}
+                    </div>
                 </div>
 
                 <div class="mb-4">
@@ -58,11 +94,18 @@
                         v-model="form.specialty"
                         id="specialty"
                         class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                        :class="{ 'border-red-500': form.errors.specialty }"
                     >
                         <option value="cardiology">Cardiology</option>
                         <option value="orthopedics">Orthopedics</option>
                         <option value="general">General</option>
                     </select>
+                    <div
+                        v-if="form.errors.specialty"
+                        class="text-red-500 text-sm mt-1"
+                    >
+                        {{ form.errors.specialty }}
+                    </div>
                 </div>
 
                 <div class="mb-4">
@@ -75,6 +118,7 @@
                         v-model="form.priority"
                         id="priority"
                         class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                        :class="{ 'border-red-500': form.errors.priority }"
                     >
                         <option value="1">1</option>
                         <option value="2">2</option>
@@ -82,6 +126,12 @@
                         <option value="4">4</option>
                         <option value="5">5</option>
                     </select>
+                    <div
+                        v-if="form.errors.priority"
+                        class="text-red-500 text-sm mt-1"
+                    >
+                        {{ form.errors.priority }}
+                    </div>
                 </div>
 
                 <div class="mb-4">
@@ -187,12 +237,13 @@
 </template>
 
 <script setup>
-import { Head } from "@inertiajs/vue3";
+import { Head, useForm, usePage } from "@inertiajs/vue3";
 import GuestLayout from "@/Layouts/GuestLayout.vue";
-import { ref, computed } from "vue";
-import axios from "axios";
+import { ref, computed, onMounted } from "vue";
 
-const form = ref({
+const page = usePage();
+
+const form = useForm({
     insurer_code: "",
     provider_name: "",
     encounter_date: "",
@@ -201,53 +252,62 @@ const form = ref({
     items: [{ name: "", unit_price: 0, quantity: 1, subtotal: 0 }],
 });
 
-const loading = ref(false);
+const toast = ref({ show: false, message: "", type: "success" });
+
+onMounted(() => {
+    if (page.props.flash?.success) {
+        showToast(page.props.flash.success, "success");
+    }
+    if (page.props.flash?.error) {
+        showToast(page.props.flash.error, "error");
+    }
+});
+
+const showToast = (message, type = "success") => {
+    toast.value = { show: true, message, type };
+    setTimeout(() => {
+        toast.value.show = false;
+    }, 5000);
+};
 
 const totalValue = computed(() => {
-    return form.value.items
+    return form.items
         .reduce((total, item) => total + item.subtotal, 0)
         .toFixed(2);
 });
 
 const addItem = () => {
-    form.value.items.push({
-        name: "",
-        unit_price: 0,
-        quantity: 1,
-        subtotal: 0,
-    });
+    form.items.push({ name: "", unit_price: 0, quantity: 1, subtotal: 0 });
 };
 
 const removeItem = (index) => {
-    form.value.items.splice(index, 1);
+    form.items.splice(index, 1);
 };
 
 const calculateSubtotal = (index) => {
-    const item = form.value.items[index];
+    const item = form.items[index];
     item.subtotal = item.unit_price * item.quantity;
 };
 
-const submitClaim = async () => {
-    loading.value = true;
-    try {
-        const response = await axios.post("/api/claims", form.value);
-        alert("Claim submitted successfully!");
-        // Reset form
-        form.value = {
-            insurer_code: "",
-            provider_name: "",
-            encounter_date: "",
-            specialty: "",
-            priority: 1,
-            items: [{ name: "", unit_price: 0, quantity: 1, subtotal: 0 }],
-        };
-    } catch (error) {
-        alert(
-            "Error submitting claim: " +
-                (error.response?.data?.message || error.message)
-        );
-    } finally {
-        loading.value = false;
-    }
+const submitClaim = () => {
+    console.log("Submitting form data:", form.data());
+    form.post("/api/claims", {
+        onSuccess: (response) => {
+            console.log("Success response:", response);
+            showToast("Claim submitted successfully!", "success");
+            // Reset form after successful submission
+            form.reset();
+            form.items = [
+                { name: "", unit_price: 0, quantity: 1, subtotal: 0 },
+            ];
+        },
+        onError: (errors) => {
+            console.log("Error response:", errors);
+            showToast(
+                "Error submitting claim. Please check the form.",
+                "error"
+            );
+        },
+    });
 };
 </script>
